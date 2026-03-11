@@ -210,6 +210,14 @@ Ghost OS MCP Server (Swift)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). We need recipes for more apps, testing on different setups, and bug reports. If you're building AI agents that do real things, this is the project.
 
+## Contributors
+
+Thanks to everyone who has contributed to Ghost OS.
+
+<a href="https://github.com/ghostwright/ghost-os/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=ghostwright/ghost-os" />
+</a>
+
 ## License
 
 MIT
