@@ -1,6 +1,7 @@
 // RecipeStore.swift - File-based recipe storage
 //
 // Loads/saves/lists/deletes recipes from ~/.ghost-os/recipes/
+// Also searches ~/.ghost-os/workflows/ for operation recordings.
 // Logs decode errors so broken recipes are visible, not silently skipped.
 
 import Foundation
@@ -9,50 +10,83 @@ import Foundation
 public enum RecipeStore {
 
     private static let recipesDir = NSString(string: "~/.ghost-os/recipes").expandingTildeInPath
+    private static let workflowsDir = NSString(string: "~/.ghost-os/workflows").expandingTildeInPath
 
     /// List all available recipes. Logs decode errors for broken recipe files.
+    /// Searches both recipes/ and workflows/ directories.
     public static func listRecipes() -> [Recipe] {
         let fm = FileManager.default
         ensureDirectory()
 
         var recipes: [Recipe] = []
-        guard let files = try? fm.contentsOfDirectory(atPath: recipesDir) else { return [] }
-
         let decoder = JSONDecoder()
-        for file in files where file.hasSuffix(".json") {
-            let path = (recipesDir as NSString).appendingPathComponent(file)
-            guard let data = fm.contents(atPath: path) else { continue }
-            do {
-                let recipe = try decoder.decode(Recipe.self, from: data)
-                recipes.append(recipe)
-            } catch {
-                // Log decode errors so broken recipes are visible
-                Log.warn("Failed to decode recipe '\(file)': \(error)")
+
+        func loadFrom(dir: String) {
+            guard let files = try? fm.contentsOfDirectory(atPath: dir) else { return }
+            for file in files where file.hasSuffix(".json") {
+                let path = (dir as NSString).appendingPathComponent(file)
+                guard let data = fm.contents(atPath: path) else { continue }
+                do {
+                    let recipe = try decoder.decode(Recipe.self, from: data)
+                    recipes.append(recipe)
+                } catch {
+                    Log.warn("Failed to decode recipe '\(file)': \(error)")
+                }
             }
+        }
+
+        loadFrom(dir: recipesDir)
+        // workflows/ は存在しない場合はスキップ
+        if fm.fileExists(atPath: workflowsDir) {
+            loadFrom(dir: workflowsDir)
         }
 
         return recipes.sorted { $0.name < $1.name }
     }
 
-    /// Load a specific recipe by name. Returns nil with logged error if decode fails.
+    /// Load a specific recipe by name. Searches recipes/ first, then workflows/.
+    /// Returns nil with logged error if decode fails.
     public static func loadRecipe(named name: String) -> Recipe? {
-        let path = (recipesDir as NSString).appendingPathComponent("\(name).json")
-        guard let data = FileManager.default.contents(atPath: path) else {
-            Log.info("Recipe '\(name)' not found at \(path)")
-            return nil
+        let recipePath = (recipesDir as NSString).appendingPathComponent("\(name).json")
+        let workflowPath = (workflowsDir as NSString).appendingPathComponent("\(name).json")
+
+        let fm = FileManager.default
+        let candidates: [String]
+        if fm.fileExists(atPath: workflowsDir) {
+            candidates = [recipePath, workflowPath]
+        } else {
+            candidates = [recipePath]
         }
-        do {
-            return try JSONDecoder().decode(Recipe.self, from: data)
-        } catch {
-            Log.error("Failed to decode recipe '\(name)': \(error)")
-            return nil
+
+        for path in candidates {
+            guard let data = fm.contents(atPath: path) else { continue }
+            do {
+                return try JSONDecoder().decode(Recipe.self, from: data)
+            } catch {
+                Log.error("Failed to decode recipe '\(name)' at \(path): \(error)")
+                return nil
+            }
         }
+
+        Log.info("Recipe '\(name)' not found in recipes/ or workflows/")
+        return nil
     }
 
     /// Save a recipe.
-    public static func saveRecipe(_ recipe: Recipe) throws {
-        ensureDirectory()
-        let path = (recipesDir as NSString).appendingPathComponent("\(recipe.name).json")
+    /// - Parameters:
+    ///   - recipe: 保存するレシピ
+    ///   - toWorkflows: trueのとき workflows/ に保存。デフォルトは false（recipes/ に保存）
+    public static func saveRecipe(_ recipe: Recipe, toWorkflows: Bool = false) throws {
+        if toWorkflows {
+            try FileManager.default.createDirectory(
+                atPath: workflowsDir,
+                withIntermediateDirectories: true
+            )
+        } else {
+            ensureDirectory()
+        }
+        let dir = toWorkflows ? workflowsDir : recipesDir
+        let path = (dir as NSString).appendingPathComponent("\(recipe.name).json")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(recipe)
