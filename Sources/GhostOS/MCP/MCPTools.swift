@@ -11,7 +11,7 @@ public enum MCPTools {
     /// All tool definitions as MCP-compatible dictionaries.
     public static func definitions() -> [[String: Any]] {
         var all = perception + actions + wait
-        all += recipes + vision + annotate
+        all += recipes + vision + annotate + recording
         return all
     }
 
@@ -306,6 +306,59 @@ public enum MCPTools {
                 "roles": propArray("string", "AX roles to include (default: buttons, links, fields, checkboxes, combos, tabs, sliders). Example: [\"AXButton\", \"AXLink\"]."),
                 "max_labels": prop("integer", "Maximum number of labels (default: 50, max: 100). Lower values reduce clutter."),
             ]
+        ),
+    ]
+
+    // MARK: - Recording Tools (6)
+
+    private static let recording: [[String: Any]] = [
+        tool(
+            name: "ghost_record_start",
+            description: "Start recording user operations. Returns a session_id. Optionally filter to a specific app.",
+            properties: [
+                "app": prop("string", "Filter recording to a specific app name. If omitted, records all apps."),
+            ]
+        ),
+        tool(
+            name: "ghost_record_stop",
+            description: "Stop the active recording session. Returns the session_id of the stopped session.",
+            properties: [:]
+        ),
+        tool(
+            name: "ghost_record_preview",
+            description: "Preview recorded steps from a session as semantic operations (click, type, hotkey, scroll).",
+            properties: [
+                "session_id": prop("string", "Session ID returned by ghost_record_start."),
+                "limit": prop("integer", "Maximum number of steps to return. If omitted, returns all."),
+            ],
+            required: ["session_id"]
+        ),
+        tool(
+            name: "ghost_record_save",
+            description: "Save a recorded session as a replayable workflow in ~/.ghost-os/workflows/.",
+            properties: [
+                "session_id": prop("string", "Session ID to save."),
+                "name": prop("string", "Workflow name (used as filename)."),
+                "description": prop("string", "Human-readable description of the workflow."),
+                "tags": propArray("string", "Tags for categorizing the workflow (e.g. [\"mail\", \"daily\"])."),
+            ],
+            required: ["session_id", "name", "description"]
+        ),
+        tool(
+            name: "ghost_workflow_list",
+            description: "List saved workflows from ~/.ghost-os/workflows/. Optionally filter by tag or app.",
+            properties: [
+                "tag": prop("string", "Filter by tag."),
+                "app": prop("string", "Filter by app name."),
+            ]
+        ),
+        tool(
+            name: "ghost_workflow_search",
+            description: "Search saved workflows by keyword (matches name, description, and tags).",
+            properties: [
+                "query": prop("string", "Search keyword."),
+            ],
+            required: ["query"]
         ),
     ]
 

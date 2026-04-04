@@ -3,6 +3,7 @@
 // Maps tool names to handler functions. Wraps each call in a timeout.
 // Formats responses as MCP content arrays.
 
+import AXorcist
 import Foundation
 
 /// Routes MCP tool calls to the appropriate module function.
@@ -12,6 +13,9 @@ public enum MCPDispatch {
     /// can take 10-20s for Chrome. 60s is the absolute ceiling — if a tool takes
     /// longer than this, the MCP server was effectively stuck.
     private static let toolTimeoutSeconds: TimeInterval = 60
+
+    /// 操作記録セッションマネージャー（プロセス全体で1インスタンス）
+    static let recordingSession = RecordingSession()
 
     /// Handle a tools/call request. Returns MCP-formatted result.
     /// Wraps every tool call in a timeout so no single tool can block
@@ -423,6 +427,164 @@ public enum MCPDispatch {
                 appName: str(args, "app"),
                 cropBox: cropBox
             )
+
+        // Recording
+        case "ghost_record_start":
+            do {
+                let sessionId = try recordingSession.startRecording(app: str(args, "app"))
+                return ToolResult(success: true, data: ["session_id": sessionId, "status": "recording"])
+            } catch {
+                return ToolResult(success: false, error: "Failed to start recording: \(error.localizedDescription)")
+            }
+
+        case "ghost_record_stop":
+            do {
+                let sessionId = try recordingSession.stopRecording()
+                return ToolResult(success: true, data: ["session_id": sessionId, "status": "stopped"])
+            } catch {
+                return ToolResult(success: false, error: "Failed to stop recording: \(error.localizedDescription)")
+            }
+
+        case "ghost_record_preview":
+            guard let sessionId = str(args, "session_id") else {
+                return ToolResult(success: false, error: "Missing required parameter: session_id")
+            }
+            do {
+                let events = try recordingSession.previewSession(sessionId: sessionId, limit: int(args, "limit"))
+                let steps = SemanticTransformer.transform(events)
+                let stepsData: [[String: Any]] = steps.map { step in
+                    var d: [String: Any] = [
+                        "action": step.action,
+                        "description": step.description,
+                    ]
+                    if let params = step.params { d["params"] = params }
+                    if let target = step.target {
+                        var t: [String: Any] = [:]
+                        if let q = target.query { t["query"] = q }
+                        if let r = target.role { t["role"] = r }
+                        if let i = target.identifier { t["identifier"] = i }
+                        if !t.isEmpty { d["target"] = t }
+                    }
+                    return d
+                }
+                return ToolResult(success: true, data: [
+                    "session_id": sessionId,
+                    "steps": stepsData,
+                    "count": stepsData.count,
+                ])
+            } catch {
+                return ToolResult(success: false, error: "Failed to preview session: \(error.localizedDescription)")
+            }
+
+        case "ghost_record_save":
+            guard let sessionId = str(args, "session_id"),
+                  let name = str(args, "name"),
+                  let description = str(args, "description")
+            else {
+                return ToolResult(success: false, error: "Missing required parameters: session_id, name, description")
+            }
+            do {
+                let events = try recordingSession.getSession(sessionId: sessionId)
+                let steps = SemanticTransformer.transform(events)
+
+                var recipeSteps: [RecipeStep] = []
+                for (idx, step) in steps.enumerated() {
+                    let locator: Locator? = step.target.map { t in
+                        LocatorBuilder.build(
+                            query: t.query,
+                            identifier: t.identifier
+                        )
+                    }
+                    recipeSteps.append(RecipeStep(
+                        id: idx + 1,
+                        action: step.action,
+                        target: locator,
+                        params: step.params,
+                        waitAfter: nil,
+                        note: step.description,
+                        onFailure: nil
+                    ))
+                }
+
+                let now = ISO8601DateFormatter().string(from: Date())
+                let metadata = RecordingMetadata(
+                    sessionId: sessionId,
+                    originalEvents: events.count,
+                    durationSeconds: 0,
+                    recordedAt: now
+                )
+
+                let tags = args["tags"] as? [String]
+                let recipe = Recipe(
+                    schemaVersion: 2,
+                    name: name,
+                    description: description,
+                    app: nil,
+                    params: nil,
+                    preconditions: nil,
+                    steps: recipeSteps,
+                    onFailure: nil,
+                    tags: tags,
+                    recordedFrom: metadata
+                )
+
+                try RecipeStore.saveRecipe(recipe, toWorkflows: true)
+                return ToolResult(success: true, data: [
+                    "saved": name,
+                    "steps": recipeSteps.count,
+                    "location": "~/.ghost-os/workflows/\(name).json",
+                ])
+            } catch {
+                return ToolResult(success: false, error: "Failed to save workflow: \(error.localizedDescription)")
+            }
+
+        case "ghost_workflow_list":
+            let allRecipes = RecipeStore.listRecipes()
+            let tagFilter = str(args, "tag")
+            let appFilter = str(args, "app")
+
+            let workflows = allRecipes.filter { recipe in
+                // recordedFrom があるものをワークフローとして扱う
+                guard recipe.recordedFrom != nil else { return false }
+                if let tag = tagFilter {
+                    guard let tags = recipe.tags, tags.contains(where: { $0.localizedCaseInsensitiveContains(tag) }) else { return false }
+                }
+                if let app = appFilter {
+                    guard let recipeApp = recipe.app, recipeApp.localizedCaseInsensitiveContains(app) else { return false }
+                }
+                return true
+            }
+
+            let summaries: [[String: Any]] = workflows.map { r in
+                var d: [String: Any] = ["name": r.name, "description": r.description, "steps": r.steps.count]
+                if let tags = r.tags { d["tags"] = tags }
+                if let app = r.app { d["app"] = app }
+                if let meta = r.recordedFrom { d["recorded_at"] = meta.recordedAt }
+                return d
+            }
+            return ToolResult(success: true, data: ["workflows": summaries, "count": summaries.count])
+
+        case "ghost_workflow_search":
+            guard let query = str(args, "query") else {
+                return ToolResult(success: false, error: "Missing required parameter: query")
+            }
+            let allRecipes = RecipeStore.listRecipes()
+            let lq = query.lowercased()
+
+            let matched = allRecipes.filter { recipe in
+                if recipe.name.lowercased().contains(lq) { return true }
+                if recipe.description.lowercased().contains(lq) { return true }
+                if let tags = recipe.tags, tags.contains(where: { $0.lowercased().contains(lq) }) { return true }
+                return false
+            }
+
+            let results: [[String: Any]] = matched.map { r in
+                var d: [String: Any] = ["name": r.name, "description": r.description, "steps": r.steps.count]
+                if let tags = r.tags { d["tags"] = tags }
+                if let meta = r.recordedFrom { d["recorded_at"] = meta.recordedAt }
+                return d
+            }
+            return ToolResult(success: true, data: ["results": results, "count": results.count, "query": query])
 
         default:
             return ToolResult(success: false, error: "Unknown tool: \(tool)")
