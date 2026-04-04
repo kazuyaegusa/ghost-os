@@ -6,6 +6,21 @@
 import AXorcist
 import Foundation
 
+/// メタデータ：操作記録から生成されたレシピの元情報。
+public struct RecordingMetadata: Codable, Sendable {
+    public let sessionId: String
+    public let originalEvents: Int
+    public let durationSeconds: Double
+    public let recordedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case originalEvents = "original_events"
+        case durationSeconds = "duration_seconds"
+        case recordedAt = "recorded_at"
+    }
+}
+
 /// A Ghost OS recipe: a parameterized, replayable workflow.
 public struct Recipe: Codable, Sendable {
     public let schemaVersion: Int
@@ -16,11 +31,15 @@ public struct Recipe: Codable, Sendable {
     public let preconditions: RecipePreconditions?
     public let steps: [RecipeStep]
     public let onFailure: String?
+    public let tags: [String]?
+    public let recordedFrom: RecordingMetadata?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case name, description, app, params, preconditions, steps
         case onFailure = "on_failure"
+        case tags
+        case recordedFrom = "recorded_from"
     }
 }
 
@@ -35,10 +54,12 @@ public struct RecipeParam: Codable, Sendable {
 public struct RecipePreconditions: Codable, Sendable {
     public let appRunning: String?
     public let urlContains: String?
+    public let elementExists: String?
 
     enum CodingKeys: String, CodingKey {
         case appRunning = "app_running"
         case urlContains = "url_contains"
+        case elementExists = "element_exists"
     }
 }
 

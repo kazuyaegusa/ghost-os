@@ -40,7 +40,20 @@ let package = Package(
             name: "GhostOSTests",
             dependencies: ["GhostOS"],
             path: "Tests/GhostOSTests",
-            swiftSettings: concurrencySettings
+            swiftSettings: concurrencySettings + [
+                .unsafeFlags([
+                    "-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+                    "-Xfrontend", "-disable-cross-import-overlays",
+                ])
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+                    "-framework", "Testing",
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+                ])
+            ]
         ),
     ],
     swiftLanguageModes: [.v6]
