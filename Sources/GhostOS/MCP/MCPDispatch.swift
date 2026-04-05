@@ -17,6 +17,12 @@ public enum MCPDispatch {
     /// 操作記録セッションマネージャー（プロセス全体で1インスタンス）
     static let recordingSession = RecordingSession()
 
+    /// パッシブキャプチャマネージャー（プロセス全体で1インスタンス）
+    static let passiveCapture = PassiveCaptureManager()
+
+    /// パターン検出器
+    static let patternDetector = PatternDetector()
+
     /// Handle a tools/call request. Returns MCP-formatted result.
     /// Wraps every tool call in a timeout so no single tool can block
     /// the MCP server indefinitely (the #1 user-reported issue).
@@ -586,6 +592,59 @@ public enum MCPDispatch {
                 return d
             }
             return ToolResult(success: true, data: ["results": results, "count": results.count, "query": query])
+
+        // Passive Capture
+        case "ghost_capture_status":
+            return ToolResult(success: true, data: [
+                "running": passiveCapture.isRunning,
+                "buffer_count": passiveCapture.bufferCount,
+                "detected_patterns": patternDetector.detectedCount,
+            ])
+
+        case "ghost_capture_save":
+            guard let name = str(args, "name"),
+                  let description = str(args, "description")
+            else {
+                return ToolResult(success: false, error: "Missing required parameters: name, description")
+            }
+            let seconds = int(args, "seconds") ?? 60
+            let actions = passiveCapture.saveRecent(seconds: seconds)
+            guard !actions.isEmpty else {
+                return ToolResult(
+                    success: false,
+                    error: "バッファに直近\(seconds)秒のアクションがありません",
+                    suggestion: "パッシブキャプチャが起動中か確認してください (ghost_capture_status)"
+                )
+            }
+            let recipeJSON = WorkflowExtractor.extract(
+                actions: actions, name: name, description: description
+            )
+            do {
+                let savedName = try RecipeStore.saveRecipeJSON(recipeJSON)
+                return ToolResult(success: true, data: [
+                    "saved": savedName,
+                    "actions_captured": actions.count,
+                    "seconds": seconds,
+                    "location": "~/.ghost-os/workflows/\(savedName).json",
+                ])
+            } catch {
+                return ToolResult(success: false, error: "ワークフロー保存に失敗: \(error.localizedDescription)")
+            }
+
+        case "ghost_capture_patterns":
+            let patterns = patternDetector.detectedPatterns
+            let data: [[String: Any]] = patterns.map { p in
+                [
+                    "pattern_hash": p.patternHash,
+                    "count": p.count,
+                    "description": p.description,
+                    "action_count": p.actions.count,
+                ]
+            }
+            return ToolResult(success: true, data: [
+                "patterns": data,
+                "count": data.count,
+            ])
 
         default:
             return ToolResult(success: false, error: "Unknown tool: \(tool)")

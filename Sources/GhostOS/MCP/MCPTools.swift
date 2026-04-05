@@ -11,7 +11,7 @@ public enum MCPTools {
     /// All tool definitions as MCP-compatible dictionaries.
     public static func definitions() -> [[String: Any]] {
         var all = perception + actions + wait
-        all += recipes + vision + annotate + recording
+        all += recipes + vision + annotate + recording + passiveCapture
         return all
     }
 
@@ -359,6 +359,31 @@ public enum MCPTools {
                 "query": prop("string", "Search keyword."),
             ],
             required: ["query"]
+        ),
+    ]
+
+    // MARK: - Passive Capture Tools (3)
+
+    private static let passiveCapture: [[String: Any]] = [
+        tool(
+            name: "ghost_capture_status",
+            description: "Get passive capture status: running state, buffer count, detected pattern count. Passive capture runs in the background and records click/key/app-switch events (not text content) into a ring buffer.",
+            properties: [:]
+        ),
+        tool(
+            name: "ghost_capture_save",
+            description: "Save recent captured actions as a workflow. Extracts the last N seconds from the passive capture buffer, converts to a recipe, and saves to ~/.ghost-os/workflows/.",
+            properties: [
+                "seconds": prop("integer", "How many seconds of recent history to save (default: 60, max: 600)."),
+                "name": prop("string", "Workflow name."),
+                "description": prop("string", "Human-readable description of the workflow."),
+            ],
+            required: ["name", "description"]
+        ),
+        tool(
+            name: "ghost_capture_patterns",
+            description: "List detected repeated operation patterns. The pattern detector scans the buffer every 30 seconds and reports sequences that occur 3+ times.",
+            properties: [:]
         ),
     ]
 
