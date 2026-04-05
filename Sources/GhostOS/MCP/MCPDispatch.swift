@@ -492,6 +492,7 @@ public enum MCPDispatch {
                     let locator: Locator? = step.target.map { t in
                         LocatorBuilder.build(
                             query: t.query,
+                            role: t.role,
                             identifier: t.identifier
                         )
                     }
