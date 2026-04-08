@@ -12,12 +12,16 @@ import ApplicationServices
 import Foundation
 import GhostOS
 
-// Force CoreGraphics server connection initialization.
-// ScreenCaptureKit requires a CG connection to the window server.
-_ = CGMainDisplayID()
-
 let args = CommandLine.arguments.dropFirst()
 let command = args.first ?? "help"
+
+// MCP モードでは CG 初期化を遅延させる（起動ブロック防止）。
+// 他のコマンドでは即座に初期化。
+if command != "mcp" {
+    // Force CoreGraphics server connection initialization.
+    // ScreenCaptureKit requires a CG connection to the window server.
+    _ = CGMainDisplayID()
+}
 
 switch command {
 case "mcp":

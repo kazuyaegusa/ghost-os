@@ -29,6 +29,9 @@ public final class MCPServer {
         case ndjson         // {json}\n
     }
 
+    /// Whether CoreGraphics has been lazily initialized.
+    private var cgInitialized = false
+
     public init() {
         // Save the real stdout fd for MCP protocol, then redirect stdout -> stderr.
         // This ensures print()/Swift.print()/any library output goes to stderr,
@@ -37,12 +40,15 @@ public final class MCPServer {
         dup2(STDERR_FILENO, STDOUT_FILENO)
         self.mcpOutput = FileHandle(fileDescriptor: savedFD, closeOnDealloc: true)
         self.instructions = Self.loadInstructions()
+    }
 
-        // Set global AX messaging timeout. Without this, any AXUIElement
-        // call to a hung/frozen app blocks FOREVER (the default timeout is 0
-        // which means infinite). This is the #1 cause of "MCP gets stuck."
-        // 5 seconds is generous — most AX calls complete in <100ms.
+    /// Lazily initialize CoreGraphics + AX on first tool call.
+    private func ensureCGInitialized() {
+        guard !cgInitialized else { return }
+        cgInitialized = true
+        _ = CGMainDisplayID()
         AXTimeoutConfiguration.setGlobalTimeout(5.0)
+        Log.info("CoreGraphics + AX initialized (lazy)")
     }
 
     /// Run the MCP server. Blocks forever reading stdin, dispatching tool calls,
@@ -77,6 +83,7 @@ public final class MCPServer {
 
             case "tools/call":
                 if let id {
+                    ensureCGInitialized()
                     writeResponse(id: id, result: MCPDispatch.handle(params))
                 }
 
